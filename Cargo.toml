@@ -1,0 +1,9 @@
+[package]
+
+name = "rustboy"
+version = "0.0.1"
+authors = ["Andrew Stanton-Nurse <andrew@andrewnurse.net>"]
+
+[lib]
+name="rustboy"
+path="src/lib.rs"
