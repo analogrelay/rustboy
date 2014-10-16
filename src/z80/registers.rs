@@ -3,5 +3,20 @@ pub enum Z80RegisterName {
 	B,
 	C,
 	D,
-	E
+	E,
+	H,
+	L,
+	F,
+	I,
+	R,
+	SP,
+	PC
+}
+
+pub enum Z80RegisterPair {
+	BC,
+	DE,
+	HL,
+	SP,
+	AF
 }

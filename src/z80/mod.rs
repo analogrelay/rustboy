@@ -1,4 +1,4 @@
-pub use self::registers::Z80RegisterName;
+pub use self::registers::{Z80RegisterName, Z80RegisterPair};
 pub use self::instr::Z80Instruction;
 pub use self::cpu::Z80;
 
