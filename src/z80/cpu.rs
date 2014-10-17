@@ -116,6 +116,28 @@ impl Z80Registers {
             _ => fail!("Invalid Instruction!")
         }
     }
+
+    fn adc(&self, val: u8) {
+        let c = 0; // Read carry flag
+        self.add(val + c);
+        fail!("Carry!");
+    }
+
+    fn add(&self, val: u8) {
+        let res = (self.a as int) + (val as int);
+
+        // Reset all flags
+        if(res < 0) {
+            // Set S flag
+        } else if(res == 0) {
+            // Set Z flag
+        } else if(res > 255) {
+            // Set P/V flag
+        }
+
+        // Check carries
+        fail!("Flags!");
+    }
 }
 
 pub struct Z80 {
@@ -271,5 +293,12 @@ fn dispatch(cpu: &mut Z80, i: Z80Instruction) {
         instr::CPDR => { unimplemented!() },
 
         // 8-bit arithmetic
+        instr::ADDar(r) => { regs.adc(regs.get(r));                                 cpu.tick(1, 4); }
+        instr::ADDan(n) => { regs.add(n);                                           cpu.tick(2, 7); }
+        instr::ADDahl =>   { regs.add(mmu.read_byte(regs.get_pair(registers::HL))); cpu.tick(2, 7); }
+        instr::ADCar(r) => { regs.adc(regs.get(r));                                 cpu.tick(1, 4); }
+        instr::ADCan(n) => { regs.adc(n);                                           cpu.tick(2, 7); }
+        instr::ADCahl =>   { regs.adc(mmu.read_byte(regs.get_pair(registers::HL))); cpu.tick(2, 7); }
+           
     }
 }

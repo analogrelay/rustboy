@@ -17,6 +17,6 @@ pub enum Z80RegisterPair {
 	BC,
 	DE,
 	HL,
-	SP,
-	AF
-}
+	AF,
+	SP
+}	
