@@ -117,26 +117,45 @@ impl Z80Registers {
         }
     }
 
-    fn adc(&self, val: u8) {
-        let c = 0; // Read carry flag
-        self.add(val + c);
-        fail!("Carry!");
+    fn reset_flags_for_value(&mut self, v: int) {
+        // Clear flags
+        regs.f = 0;
+
+        // Z flag, check if value is 0 once truncated to 255
+        if (val & 0xFF) == 0 {
+            regs.f |= 0x80;
+        }
     }
 
-    fn add(&self, val: u8) {
-        let res = (self.a as int) + (val as int);
+    fn sub(&mut self, val: u8, borrow: bool) {
+        // Subtract the values as full-width integers
+        let val = (val as int) - (regs.a as int);
 
-        // Reset all flags
-        if(res < 0) {
-            // Set S flag
-        } else if(res == 0) {
-            // Set Z flag
-        } else if(res > 255) {
-            // Set P/V flag
+        regs.reset_flags_for_value(val);
+        regs.f |= 0x40; // Subtract flag
+
+        // Borrow flag
+        if val < 0 {
+            regs.f |= 0x10;
+        }
+    }
+
+    fn add(&mut self, val: u8, carry: bool) {
+        // Add the values as full-width integers
+        let val = (val as int) + (regs.a as int);
+        if carry {
+            val += ((regs.f & 0x10) >> 4);
         }
 
-        // Check carries
-        fail!("Flags!");
+        regs.reset_flags_for_value(val);
+
+        // Carry flag
+        if val > 255 {
+            regs.f |= 0x10;
+        }
+
+        // Truncate back to 8-bits
+        regs.a = (val & 255) as u8;
     }
 }
 
@@ -219,86 +238,79 @@ fn dispatch(cpu: &mut Z80, i: Z80Instruction) {
     let mut mmu = mmu;
     match i {
         // 8-bit loads
-        instr::LDrn(r, n) =>   { regs.set(r, n);    cpu.tick(2, 8); },
         instr::LDrr(r1, r2) => { regs.copy(r1, r2); cpu.tick(1, 4); },
-        instr::LDrm(r) => { 
-            let addr = regs.get_pair(registers::HL)
-            regs.set(r, mmu.read_byte(addr)); 
-            cpu.tick(2, 7); 
+        instr::LDrHLm(r) =>    { regs.set(r, mmu.read_byte(regs.get_pair(registers::HL))); cpu.tick(2, 8); },
+        instr::LDHLmr(r) =>    { mmu.write_byte(regs.get_pair(registers::HL), regs.get(r)); cpu.tick(2, 8); },
+        instr::LDrn(r, n) =>   { regs.set(r, n); cpu.tick(2, 8); },
+        instr::LDHLmn(n) =>    { mmu.write_byte(regs.get_pair(registers::HL), n); cpu.tick(3, 12); },
+        instr::LDrrmA(r) =>    { mmu.write_byte(regs.get_pair(r), regs.a); cpu.tick(2, 8); },
+        instr::LDmmA(n) =>     { mmu.write_byte(n, regs.a); cpu.tick(4, 16); },
+        instr::LDArrm(r) =>    { regs.a = mmu.read_byte(regs.get_pair(r)); cpu.tick(2, 8); },
+        instr::LDAmm(n) =>     { regs.a = mmu.read_byte(n); cpu.tick(4, 16); },
+        instr::LDrrnn(r, n) => { regs.set_pair(r, n); cpu.tick(3, 12); },
+        instr::LDHLmm(n) =>    { regs.set_pair(r, mmu.read_word(n)); cpu.tick(5, 20); },
+        instr::LDmmHL(n) =>    { mmu.write_word(n, regs.get_pair(r)); cpu.tick(5, 20); },
+        instr::LDHLIA => {
+            mmu.write_byte(regs.get_pair(registers::HL), regs.a);
+            regs.set_pair(registers::HL, regs.get_pair(registers::HL) + 1);
+            cpu.tick(2, 8);
         },
-        instr::LDmr(r) => {
-            let addr = regs.get_pair(registers::HL); 
-            mmu.write_byte(addr, regs.get(r)); 
-            cpu.tick(2, 7); 
+        instr::LDAHLI => {
+            regs.a = mmu.read_byte(regs.get_pair(registers::HL));
+            regs.set_pair(registers::HL, regs.get_pair(registers::HL) + 1);
+            cpu.tick(2, 8);
+        }
+        instr::LDHLDA => {
+            mmu.write_byte(regs.get_pair(registers::HL), regs.a);
+            regs.set_pair(registers::HL, regs.get_pair(registers::HL) - 1);
+            cpu.tick(2, 8);
         },
-        instr::LDmn(n) => { 
-            let addr = regs.get_pair(registers::HL);
-            mmu.write_byte(addr, n);
-            cpu.tick(3, 10);
+        instr::LDAHLD => {
+            regs.a = mmu.read_byte(regs.get_pair(registers::HL));
+            regs.set_pair(registers::HL, regs.get_pair(registers::HL) - 1);
+            cpu.tick(2, 8);
         },
-        instr::LDadd(d) => {
-            let addr = regs.get_pair(d);
-            let val = mmu.read_byte(addr);
-            regs.a = val;
-            cpu.tick(2, 7);
+        instr::LDAIOn(n) =>     { regs.a = mmu.read_byte(0xFF00 + n); cpu.tick(3, 12); },
+        instr::LDIOnA(n) =>     { mmu.write_byte(0xFF00 + n, regs.a); cpu.tick(3, 12); },
+        instr::LDAIOC    =>     { regs.a = mmu.read_byte(0xFF00 + regs.c); cpu.tick(2, 8); },
+        instr::LDIOCA(n) =>     { mmu.write_byte(0xFF00 + regs.c, regs.a); cpu.tick(2, 8); },
+        instr::LDHLSPn(n) =>    { regs.set_pair(registers::HL, regs.sp + n); cpu.tick(3, 12); },
+        instr::SWAP(r) => {
+            let t = regs.get(t);
+            let up = (t & 0xF0) >> 4; // upper nybble
+            let lw = t & 0x0F; // lower nybble
+            regs.set(r, (lw << 4) + up); // swap and set
+            cpu.tick(4, 16);
         },
-        instr::LDann(n) => {
-            regs.set(registers::A, mmu.read_byte(n));
-            cpu.tick(4, 13); 
-        },
-        instr::LDdda(d) => {
-            let addr = regs.get_pair(d)
-            mmu.write_byte(addr, regs.a);
-            cpu.tick(2, 7);
-        },
-        instr::LDnna(n) => { 
-            mmu.write_byte(n, regs.a);
-            cpu.tick(4, 13); 
-        },
-        instr::LDai => { unimplemented!() },
-        instr::LDar => { unimplemented!() },
-        instr::LDia => { unimplemented!() },
-        instr::LDra => { unimplemented!() },        
+        instr::ADDr(r) =>  { regs.add(regs.get(r), false); cpu.tick(1, 4); },
+        instr::ADDmHL =>  { regs.add(mmu.read_byte(regs.get_pair(registers::HL)), false); cpu.tick(2, 8); },
+        instr::ADDn(n) => { regs.add(n, false); cpu.tick(2, 8); },
+        instr::ADDHLrr(rr) => {
+            let hl = regs.get_pair(registers::HL) as int;
+            hl += regs.get_pair(rr);
 
-        // 16-bit loads
-        instr::LDddnn(d, n) => { regs.set_pair(d, n);                             cpu.tick(2, 10); },
-        instr::LDhlnn(n) =>    { regs.set_pair(registers::HL, mmu.read_word(n));  cpu.tick(5, 16); },
-        instr::LDddm(d, n) =>  { regs.set_pair(d, mmu.read_word(n));              cpu.tick(6, 20); },
-        instr::LDmhl(n) =>     { mmu.write_word(n, regs.get_pair(registers::HL)); cpu.tick(5, 16); },
-        instr::LDmdd(d, n) =>  { mmu.write_word(n, regs.get_pair(d));             cpu.tick(5, 16); },
-        instr::LDsphl =>       { regs.sp = regs.get_pair(registers::HL);          cpu.tick(1, 6); },
-        instr::PUSHqq(q) => {
-            regs.sp--;
-            mmu.write_byte(regs.sp, regs.get(regs.get_high(q)));
-            regs.sp--;
-            mmu.write_byte(regs.sp, regs.get(regs.get_low(q)));
-            cpu.tick(3, 11);
+            // NOTE: DO NOT reset flags, Z is left alone!
+            if hl > 0xFFFF {
+                regs.f |= 0x10; // Set Carry
+            } else {
+                regs.f &= 0xEF; // Clear Carry
+            }
+            regs.set_pair(rr, (hl & 0xFFFF) as u16);
+            cpu.tick(3, 12);
         },
-        instr::POPqq(q) => {
-            regs.set(regs.get_low(q), mmu.read_byte(regs.sp));
-            regs.sp++;
-            regs.set(regs.get_high(q), mmu.read_byte(regs.sp));
-            regs.sp++;
-            cpu.tick(3, 10);
-        },
-
-        // Exchange, Block Transfer, Search Group
-        instr::LDI => { unimplemented!() },
-        instr::LDIR => { unimplemented!() },
-        instr::LDD => { unimplemented!() },
-        instr::LDDR => { unimplemented!() },
-        instr::CPI => { unimplemented!() },
-        instr::CPIR => { unimplemented!() },
-        instr::CPD => { unimplemented!() },
-        instr::CPDR => { unimplemented!() },
-
-        // 8-bit arithmetic
-        instr::ADDar(r) => { regs.adc(regs.get(r));                                 cpu.tick(1, 4); }
-        instr::ADDan(n) => { regs.add(n);                                           cpu.tick(2, 7); }
-        instr::ADDahl =>   { regs.add(mmu.read_byte(regs.get_pair(registers::HL))); cpu.tick(2, 7); }
-        instr::ADCar(r) => { regs.adc(regs.get(r));                                 cpu.tick(1, 4); }
-        instr::ADCan(n) => { regs.adc(n);                                           cpu.tick(2, 7); }
-        instr::ADCahl =>   { regs.adc(mmu.read_byte(regs.get_pair(registers::HL))); cpu.tick(2, 7); }
-           
+        instr::ADDSPn(n) => { regs.sp += n; cpu.tick(4, 16); },
+        instr::ADCr(r) =>   { regs.add(regs.get(r), true); cpu.tick(1, 4); },
+        instr::ADCmHL =>    { regs.add(mmu.read_byte(regs.get_pair(registers::HL)), true); cpu.tick(2, 8); },
+        instr::ADCn(n) =>   { regs.add(n, true); cpu.tick(2, 8); },
+        instr::SUBr(r) =>   { regs.sub(regs.get(r), false); cpu.tick(1, 4); },
+        instr::SUBmHL =>    { regs.sub(mmu.read_byte(regs.get_pair(registers::HL)), false); cpu.tick(2, 8); },
+        instr::SUBn(n) =>   { regs.sub(n, false); cpu.tick(2, 8); },
+        instr::SBCr(r) =>   { regs.sub(regs.get(r), true); cpu.tick(1, 4); },
+        instr::SBCmHL =>    { regs.sub(mmu.read_byte(regs.get_pair(registers::HL)), true); cpu.tick(2, 8); },
+        instr::SBCn(n) =>   { regs.sub(n, true); cpu.tick(2, 8); }
     }
+}
+
+#[cfg(test)]
+mod test {
 }
