@@ -1,3 +1,4 @@
+#[deriving(PartialEq, Eq, Show)]
 pub enum Z80RegisterName {
 	A,
 	B,
@@ -11,10 +12,11 @@ pub enum Z80RegisterName {
 	PC
 }
 
+#[deriving(PartialEq, Eq, Show)]
 pub enum Z80RegisterPair {
 	BC,
 	DE,
 	HL,
 	AF,
-	SP
+	SP_
 }
